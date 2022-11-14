@@ -94,7 +94,13 @@ async function getResponse() {
 	const data_res = await response.json();
   data1=data_res
   // console.log(data_res)
-  console.log(data1)
+  console.log(typeof data1)
+  console.log(data1.catPoints)
+  app.get("/catPoints", function (req, res) {
+    res
+      .status(200)
+      .json(data1);
+  });
 }
 
 getResponse()
