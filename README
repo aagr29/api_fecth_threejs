@@ -1,8 +1,1 @@
-to start:
-git clone https://github.com/cognitive-earth/Threejs-click-create.git
-cd Threejs-click-create
-npm start
-Visit http://127.0.0.1:3000
-
-
-
+app to fetch best catenary points
