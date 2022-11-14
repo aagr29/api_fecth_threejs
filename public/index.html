@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<title>three.js webgl - interactive - raycasting - points</title>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+	<link type="text/css" rel="stylesheet" href="main.css" />
+</head>
+<script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+<script>
+	// get span coordinates
+	var xp = [];
+	var yp = [];
+	var zp = [];
+	$.get("/get_coordinates", function (result) {
+		var data_x = result["x"];
+		var data_y = result["y"];
+		var data_z = result["z"];
+		for (let i = 0; i < data_x.length; i++) {
+			xp[i] = data_x[i];
+			yp[i] = data_y[i];
+			zp[i] = data_z[i];
+		}
+	});
+</script>
+
+<body>
+	<div id="container"></div>
+	<div id="info">
+		<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a>
+		drawing the curve by multiselecting of points
+	</div>
+
+	<!-- Import maps polyfill -->
+	<!-- Remove this when import maps will be widely supported -->
+	<!-- <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script> -->
+	<script src="three143.js"></script>
+	<script src="OrbitControls.js"></script>
+	<script type="importmap">
+      {
+        "imports": {
+          "three": "../build/three.module.js",
+          "three/addons/": "./jsm/"
+        }
+      }
+    </script>
+
+	<script type="module">
+		let renderer, scene, camera;
+		let raycaster;
+		let intersection = null;
+		let spheresIndex = 0;
+		let clock;
+		let toggle = 0;
+		let orbitcontrol;
+		let sphere, sphereGeometry, sphereMaterial;
+		let pcBuffer;
+		let vector = [];
+		let countNumber = 0;
+		let pointNumber = 3;
+		let splineObject;
+		let previndex;
+		let splineCurve;
+		let index_1, index_2, index_3;
+		let modifypoint;
+		let modifysphereMaterial;
+		let midify_flag = false;
+		let refer_index;
+		let spheres = [];
+
+		let index_array = [];
+		let vector_array = [];
+		let splineObject_array = [];
+
+
+		const pointer = new THREE.Vector2();
+
+		const threshold = 3;
+		const pointSize = 1;
+		// const width = 1;
+		// const length = 1;
+		// const rotateY = new THREE.Matrix4().makeRotationY( 0.005 );
+		let pointclouds = []; // The object that represents the visible cloud of points. // Object of type THREE.Geometry containing the visible points.
+
+		init();
+		animate();
+		// console.log(xp);
+
+
+		function generatePointCloudGeometry() {
+			const points = [];
+			const color = []
+			for (let i = 0; i < xp.length; i++) {
+				const x = parseFloat(xp[i]).toFixed(7);
+				const y = parseFloat(yp[i]).toFixed(7);
+				const z = parseFloat(zp[i]).toFixed(7);
+				const r = 1;
+				const b = 0
+				const g = 0
+				points.push(x, y, z);
+				color.push(r, b, g)
+			}
+
+			const geometry = new THREE.BufferGeometry();
+
+			geometry.setAttribute(
+				"position", new THREE.BufferAttribute(new Float32Array(points), 3)
+			);
+			geometry.setAttribute(
+				"color", new THREE.BufferAttribute(new Float32Array(color), 3)
+			);
+
+
+			return geometry;
+		}
+		function generatePointcloud() {
+			const geometry = generatePointCloudGeometry();
+			const material = new THREE.PointsMaterial({
+				size: pointSize, vertexColors: true
+			});
+			return new THREE.Points(geometry, material);
+		}
+
+
+		function init() {
+			const container = document.getElementById("container");
+
+			scene = new THREE.Scene();
+
+			clock = new THREE.Clock();
+
+			camera = new THREE.PerspectiveCamera(
+				45,
+				window.innerWidth / window.innerHeight,
+				1,
+				10000
+			);
+			camera.position.set(10, 10, 10);
+			camera.lookAt(scene.position);
+			camera.updateMatrix();
+			pcBuffer = generatePointcloud();
+			console.log(pcBuffer)
+			pcBuffer.scale.set(5, 10, 10);
+			pcBuffer.position.set(0, 0, 0);
+			scene.add(pcBuffer);
+
+			pointclouds = [pcBuffer];
+
+			console.log(pointclouds);
+
+			renderer = new THREE.WebGLRenderer({ antialias: true });
+			renderer.setPixelRatio(window.devicePixelRatio);
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			container.appendChild(renderer.domElement);
+
+			//
+
+			raycaster = new THREE.Raycaster();
+			raycaster.params.Points.threshold = threshold;
+
+			//
+
+			orbitcontrol = new THREE.OrbitControls(camera, renderer.domElement);
+			orbitcontrol.update();
+			orbitcontrol.addEventListener("change", render);
+			//
+
+			sphereGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+			sphereMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+			modifysphereMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+
+			// for ( let i = 0; i < 40; i ++ ) {
+
+			// 	const sphere = new THREE.Mesh( sphereGeometry, sphereMaterial );
+			// 	scene.add( sphere );
+			// 	spheres.push( sphere );
+
+			// }
+			// sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+			// scene.add(sphere);
+			document.addEventListener("click", selectPoint);
+			document.addEventListener('pointermove', onPointerMove);
+			document.addEventListener("dblclick", pointModifyReady);
+			document.onkeydown = function (evt) {
+				evt = evt || window.event;
+				if (evt.keyCode == 27) {
+					for (var i = toggle + countNumber + 3; i > 2; i--) {
+						scene.remove(scene.children[i]);
+					}
+					// let colors_pcBuffer, colors_pcIndexed, colors_pcIndexedOffset;
+					// colors_pcBuffer = pcBuffer.geometry.attributes.color.array;
+					var index = 0;
+					for (let i = 0; i < xp.length; i++)  {
+						 
+
+					
+							const intensity = 1
+
+							pcBuffer.geometry.attributes.color.array[index * 3] = 1 * intensity;
+							pcBuffer.geometry.attributes.color.array[index * 3 + 1] = 0 * intensity;
+							pcBuffer.geometry.attributes.color.array[index * 3 + 2] = 0 * intensity;
+						
+
+							pcBuffer.geometry.attributes.color.needsUpdate = true;
+						
+							index++;
+						
+					}
+					vector = [];
+					toggle = 0;
+					countNumber = 0;
+					spheres = [];
+					index_array = [];
+					vector_array = [];
+					splineObject_array = [];
+				}
+			}
+		}
+		function onPointerMove(event) {
+			pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+			pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+		}
+
+		function pointModifyReady() {
+
+			raycaster.setFromCamera(pointer, camera);
+			const intersections = raycaster.intersectObjects(spheres, true);
+			intersection = (intersections.length) > 0 ? intersections[0] : null;
+			if (intersection == null) return;
+
+			intersection.object.material = modifysphereMaterial;
+			modifypoint = intersection;
+			for (var i = 0; i < index_array.length; i++) {
+				if (modifypoint.object.uuid == spheres[i].uuid) {
+					refer_index = i;
+				}
+			}
+			midify_flag = true;
+		}
+		function selectPoint(e) {
+			//if(e.ctrlKey && toggle!=pointNumber){
+			//if(e.ctrlKey ){
+			if (e.ctrlKey) {
+				raycaster.setFromCamera(pointer, camera);
+				const intersections = raycaster.intersectObjects(pointclouds, true);
+				intersection = (intersections.length) > 0 ? intersections[0] : null;
+				if (intersection == null) return;
+				toggle++;
+				sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+				sphere.position.set(intersection.point.x, intersection.point.y, intersection.point.z);
+				scene.add(sphere);
+				spheres.push(sphere);
+
+
+				let { index } = intersection
+				let first = index * 3;
+				let object = pcBuffer;
+				if (toggle == 1) previndex = index;
+
+				index_array.push(index);
+				if (toggle % 3 == 0) index_3 = index;
+				else if (toggle % 3 == 1) index_1 = index;
+				else index_2 = index;
+				// if(toggle>1)changeColor(previndex, index);
+				var colors = object.geometry.attributes.color.array;
+
+				colors[first] = 255
+				colors[first + 1] = 255
+				colors[first + 2] = 255
+
+				object.geometry.attributes.color.array = colors
+				object.geometry.attributes.color.needsUpdate = true;
+				const position = object.geometry.attributes.position.array;
+
+				let posix = intersection.point.x;
+				let posiy = intersection.point.y;
+				let posiz = intersection.point.z;
+				vector.push(new THREE.Vector3(posix, posiy, posiz));
+				vector_array.push(new THREE.Vector3(posix, posiy, posiz));
+				// if(toggle==pointNumber){
+				// 	paintCurve();
+				// }
+				previndex = index;
+				if (toggle % pointNumber == 0) {
+					paintCurve(vector[0], vector[1], vector[2]);
+					changeColor(index_1, index_2);
+					changeColor(index_2, index_3);
+				}
+				//paintCurve();
+			}
+			else if (modifypoint && midify_flag == true) {
+				raycaster.setFromCamera(pointer, camera);
+				const intersections = raycaster.intersectObjects(pointclouds, true);
+				intersection = (intersections.length) > 0 ? intersections[0] : null;
+				if (intersection == null) return;
+				modifypoint.object.position.set(intersection.point.x, intersection.point.y, intersection.point.z);
+				modifypoint.object.material = sphereMaterial;
+				vector_array[refer_index].set(intersection.point.x, intersection.point.y, intersection.point.z);
+				var add_index = 0;
+				for (let i = 0; i < xp.length; i++) {
+
+					const intensity = 1
+
+					pcBuffer.geometry.attributes.color.array[add_index * 3] = 1 * intensity;
+					pcBuffer.geometry.attributes.color.array[add_index * 3 + 1] = 0 * intensity;
+					pcBuffer.geometry.attributes.color.array[add_index * 3 + 2] = 0 * intensity;
+					pcBuffer.geometry.attributes.color.needsUpdate = true;
+					add_index++;
+
+				}
+
+				let { index } = intersection;
+				// if (intersection.object.uuid == pcIndexed.uuid) index = index + 12800;
+				// if (intersection.object.uuid == pcIndexedOffset.uuid) index = index + 12800 * 2;
+				index_array[refer_index] = index;
+				var count_curve = index_array.length / 3;
+				count_curve = Math.floor(count_curve);
+				for (var i = 0; i < 3 * count_curve; i++) {
+					if (i % 3 == 2) continue;
+					changeColor(index_array[i], index_array[i + 1]);
+				};
+
+				for (var i = 0; i < splineObject_array.length; i++) {
+					scene.remove(splineObject_array[i]);
+				};
+				countNumber -= spheres.length;
+
+				splineObject_array = [];
+				for (var i = 2; i < spheres.length; i += 3) {
+					paintCurve(vector_array[i - 2], vector_array[i - 1], vector_array[i]);
+					console.log("asdjfklsadfsafsadfsdaf" + spheres.length)
+				};
+				midify_flag = false;
+			}
+			else return;
+
+		}
+		function paintCurve(vector1, vector2, vector3) {
+			//scene.remove(splineObject);
+			splineCurve = new THREE.CatmullRomCurve3([vector1, vector2, vector3]);
+			const points = splineCurve.getPoints(100);
+			const geometry = new THREE.BufferGeometry().setFromPoints(points);
+			const material = new THREE.LineBasicMaterial({ color: 0xffffff });
+			splineObject = new THREE.Line(geometry, material);
+			scene.add(splineObject);
+			splineObject_array.push(splineObject);
+			countNumber++;
+			vector = [];
+		}
+
+
+
+		function changeColor(pindex = Number, cindex = Number) {
+			var x_pindex = pindex / 160;
+			var y_pindex = pindex % 160;
+			var x_cindex = cindex / 160;
+			var y_cindex = cindex % 160;
+
+
+
+			x_pindex = Math.floor(x_pindex);
+			x_cindex = Math.floor(x_cindex);
+
+			var flag = true;
+			if (Math.abs(x_pindex - x_cindex) < Math.abs(y_pindex - y_cindex)) flag = false;
+			if (flag) {
+				var aspect = (y_cindex - y_pindex) / (x_cindex - x_pindex);
+				if (x_cindex >= x_pindex) {
+					for (let i = 1; i < (x_cindex - x_pindex); i++) {
+						var y_index = i * aspect;
+						y_index = Math.round(y_index) + y_pindex;
+						var index = (x_pindex + i) * 160 + y_index;
+						var object = pcBuffer;
+
+						if (index / 12800 >= 1) object = pcIndexed;
+						if (index / 12800 >= 2) object = pcIndexedOffset;
+
+						index = index % 12800;
+						object.geometry.attributes.color
+						var colors = object.geometry.attributes.color.array;
+
+						colors[index * 3] = 255
+						colors[index * 3 + 1] = 255
+						colors[index * 3 + 2] = 255
+
+						object.geometry.attributes.color.array = colors
+						object.geometry.attributes.color.needsUpdate = true;
+						const position = object.geometry.attributes.position.array;
+					}
+				}
+				else {
+					for (let i = 1; i < (x_pindex - x_cindex); i++) {
+						var y_index = i * aspect;
+						y_index = Math.round(y_index) + y_cindex;
+						var index = (x_cindex + i) * 160 + y_index;
+						var object = pcBuffer;
+
+						if (index / 12800 >= 1) object = pcIndexed;
+						if (index / 12800 >= 2) object = pcIndexedOffset;
+
+						index = index % 12800;
+						object.geometry.attributes.color
+						var colors = object.geometry.attributes.color.array;
+
+						colors[index * 3] = 255
+						colors[index * 3 + 1] = 255
+						colors[index * 3 + 2] = 255
+
+						object.geometry.attributes.color.array = colors
+						object.geometry.attributes.color.needsUpdate = true;
+						const position = object.geometry.attributes.position.array;
+					}
+				}
+			}
+			else {
+				var aspect = (y_cindex - y_pindex) / (x_cindex - x_pindex);
+				if (y_cindex >= y_pindex) {
+					for (let i = 1; i < (y_cindex - y_pindex); i++) {
+						var x_index = i / aspect;
+						x_index = Math.round(x_index) + x_pindex;
+						var index = (x_index) * 160 + y_pindex + i;
+						var object = pcBuffer;
+
+						if (index / 12800 >= 1) object = pcIndexed;
+						if (index / 12800 >= 2) object = pcIndexedOffset;
+
+						index = index % 12800;
+						object.geometry.attributes.color
+						var colors = object.geometry.attributes.color.array;
+
+						colors[index * 3] = 255
+						colors[index * 3 + 1] = 255
+						colors[index * 3 + 2] = 255
+
+						object.geometry.attributes.color.array = colors
+						object.geometry.attributes.color.needsUpdate = true;
+						const position = object.geometry.attributes.position.array;
+					}
+				}
+				else {
+					for (let i = 1; i < (y_pindex - y_cindex); i++) {
+						var x_index = i / aspect;
+						x_index = Math.round(x_index) + x_cindex;
+						var index = (x_index) * 160 + y_cindex + i;
+						var object = pcBuffer;
+
+						if (index / 12800 >= 1) object = pcIndexed;
+						if (index / 12800 >= 2) object = pcIndexedOffset;
+
+						index = index % 12800;
+						object.geometry.attributes.color
+						var colors = object.geometry.attributes.color.array;
+
+						colors[index * 3] = 255
+						colors[index * 3 + 1] = 255
+						colors[index * 3 + 2] = 255
+
+						object.geometry.attributes.color.array = colors
+						object.geometry.attributes.color.needsUpdate = true;
+						const position = object.geometry.attributes.position.array;
+					}
+				}
+			}
+		}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+		function onWindowResize() {
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize(window.innerWidth, window.innerHeight);
+		}
+
+		function animate() {
+			requestAnimationFrame(animate);
+
+			render();
+		}
+
+		function render() {
+			camera.updateMatrixWorld();
+			renderer.render(scene, camera);
+		}
+	</script>
+</body>
+
+</html>
